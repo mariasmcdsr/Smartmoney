@@ -18,7 +18,7 @@ O sistema calcula o total de rendas, o total de gastos, a sobra disponível, a p
 - Alerta
 - Endividado
 
-O projeto foi desenvolvido inicialmente para fins acadêmicos, como parte do curso Técnico de Nível Médio em Informática, na disciplina de Linguagem de Programação II.
+O projeto foi desenvolvido inicialmente para fins acadêmicos, como parte do curso Técnico de Nível Médio em Informática.
 
 ## Objetivo
 
