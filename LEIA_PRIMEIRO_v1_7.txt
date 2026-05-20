@@ -1,0 +1,22 @@
+SMARTMONEY - VERSÃO 1.7
+
+O que mudou:
+- Adicionada a coluna usuario nas tabelas controle_financeiro, gastos, receitas e justificativas_edicao.
+- O objetivo é facilitar a visualização no phpMyAdmin para a banca/professores, mostrando o nome do usuário ao lado dos IDs.
+- Os registros antigos são preenchidos por UPDATE com INNER JOIN.
+- Os novos registros passam a salvar o nome do usuário automaticamente pelo PHP.
+
+Arquivos alterados:
+- salario.php
+- adicionar_gasto_historico.php
+- editar_gasto.php
+- editar_receita.php
+- remover_historico.php
+
+Arquivo SQL para executar no phpMyAdmin:
+- atualizar_banco_v1_7.sql
+
+Atenção:
+- Não apagar tabelas.
+- Não usar DROP.
+- Se algum ALTER TABLE disser que a coluna usuario já existe, ignore esse comando e continue os próximos.

@@ -1,0 +1,15 @@
+SmartMoney versão 1.6
+
+Alterações:
+1. Adicionado botão para remover histórico completo na tela historico.php.
+2. Criado arquivo remover_historico.php para remover um histórico antigo inteiro, com gastos e receitas vinculados.
+3. A remoção do histórico exige justificativa e salva registro em justificativas_edicao.
+4. Adicionado botão para remover receita dentro de editar_receita.php, também com justificativa obrigatória e recálculo automático.
+
+Para atualizar só a versão 1.6:
+- Substituir historico.php
+- Substituir editar_receita.php
+- Enviar o arquivo novo remover_historico.php
+
+Não precisa alterar o banco para a 1.6, desde que a tabela justificativas_edicao já exista.
+Não substitua conexao.php no site online.

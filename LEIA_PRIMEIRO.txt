@@ -1,0 +1,49 @@
+SMARTMONEY - VERSÃO 1.4
+
+Esta versão inclui tudo das versões anteriores e adiciona a melhoria solicitada para o histórico.
+
+Resumo das versões:
+1.1 = receitas adicionais + justificativa obrigatória ao editar gasto ou receita.
+1.2 = views para pesquisar no banco pelo nome do usuário.
+1.3 = botão para usar o salário anterior.
+1.4 = botão para adicionar gasto esquecido dentro dos detalhes de um histórico antigo.
+
+O que mudou na 1.4:
+- Alterado: detalhes.php
+- Novo arquivo: adicionar_gasto_historico.php
+
+O que a melhoria faz:
+- No detalhes.php, dentro de um registro antigo do histórico, aparece o botão:
+  + Adicionar gasto esquecido
+- Ao clicar, o usuário informa nome, valor e data do gasto.
+- O sistema salva esse gasto na tabela gastos usando o id_controle daquele histórico.
+- Depois recalcula automaticamente:
+  total_gastos
+  sobra
+  porcentagem_gasta
+  situacao
+
+Arquivos que devem ser enviados/substituídos para atualizar da 1.3 para 1.4:
+- Substituir: detalhes.php
+- Enviar novo: adicionar_gasto_historico.php
+
+Arquivos que continuam iguais:
+- index.php
+- cadastro.php
+- login.php
+- logout.php
+- conexao.php
+- money.php
+- salario.php
+- historico.php
+- editar_gasto.php
+- editar_receita.php
+
+Banco de dados:
+- Não precisa executar SQL novo para a versão 1.4.
+- Esta melhoria usa as tabelas que já existem: controle_financeiro e gastos.
+
+Importante:
+- Não apagar o banco.
+- Não trocar conexao.php no site online se ele já está funcionando.
+- Para testar no XAMPP, conferir se o conexao.php local está configurado com localhost, usuário root e banco local correto.

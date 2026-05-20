@@ -1,0 +1,33 @@
+SmartMoney - Versão 1.5
+
+O que mudou na versão 1.5:
+- Adicionado botão Remover gasto dentro de editar_gasto.php.
+- Para remover um gasto, o usuário precisa preencher a justificativa da alteração.
+- Ao remover o gasto, o sistema grava a justificativa na tabela justificativas_edicao.
+- Depois da remoção, o sistema recalcula automaticamente total de gastos, sobra, porcentagem e situação do histórico.
+
+Arquivos alterados nesta versão:
+- editar_gasto.php
+
+Arquivos que continuam iguais:
+- index.php
+- cadastro.php
+- login.php
+- logout.php
+- money.php
+- salario.php
+- historico.php
+- detalhes.php
+- editar_receita.php
+- adicionar_gasto_historico.php
+- conexao.php
+
+Banco de dados:
+- Não precisa executar novo SQL para a versão 1.5.
+- A versão usa a tabela justificativas_edicao, que já foi criada na versão 1.1.
+
+Para atualizar no site online:
+1. Fazer backup do editar_gasto.php atual.
+2. Enviar o novo editar_gasto.php para o htdocs.
+3. Substituir o arquivo antigo.
+4. Testar abrindo Detalhes > Editar gasto > Remover gasto.

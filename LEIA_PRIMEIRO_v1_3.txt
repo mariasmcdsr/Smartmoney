@@ -1,0 +1,46 @@
+SMARTMONEY - VERSÃO 1.3
+
+Esta versão mantém tudo que já tinha na versão 1.2 e adiciona a melhoria do botão para usar o salário informado anteriormente.
+
+O QUE JÁ VEIO DAS VERSÕES ANTERIORES:
+- Versão 1.1: salário/renda principal, receitas adicionais, gastos, edição com justificativa e gráfico corrigido para não mostrar #45, #87 etc.
+- Versão 1.2: consultas prontas no banco para pesquisar gastos, receitas, resumo e justificativas pelo nome do usuário.
+
+O QUE MUDOU NA VERSÃO 1.3:
+- Foi adicionado no money.php um botão para preencher automaticamente o campo Salário / renda principal com o último salário usado pelo usuário logado.
+- Isso ajuda quem tem salário fixo, mas ainda permite que quem tem salário variável digite outro valor manualmente.
+- Não precisa alterar o banco para essa melhoria.
+
+ARQUIVO ALTERADO NA VERSÃO 1.3:
+- money.php
+
+ARQUIVOS QUE CONTINUAM IGUAIS EM RELAÇÃO À 1.2:
+- index.php
+- cadastro.php
+- login.php
+- logout.php
+- conexao.php
+- salario.php
+- historico.php
+- detalhes.php
+- editar_gasto.php
+- editar_receita.php
+
+IMPORTANTE:
+- Não substitua o conexao.php no site online se ele já estiver funcionando com os dados do InfinityFree.
+- Para testar no XAMPP, use o conexao.php configurado para o banco local.
+
+SE AINDA NÃO INSTALOU A 1.1 E 1.2:
+1. Execute atualizar_banco_v1_1.sql no phpMyAdmin.
+2. Execute atualizar_banco_v1_2.sql no phpMyAdmin.
+3. Coloque os arquivos PHP no htdocs.
+
+SE A 1.2 JÁ ESTIVER FUNCIONANDO:
+- Basta substituir apenas o arquivo money.php.
+
+ARQUIVOS SQL:
+- atualizar_banco_v1_1.sql: cria total_rendas, receitas e justificativas de edição.
+- atualizar_banco_v1_2.sql: cria views para pesquisar pelo nome do usuário.
+- consultas_prontas_por_usuario.sql: exemplos de SELECT usando usuario.
+
+NÃO USE DROP TABLE no banco publicado, para não apagar os dados já cadastrados.

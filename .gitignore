@@ -1,0 +1,14 @@
+# Arquivos temporários
+*.log
+*.tmp
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Backups locais
+*.bak
+*.backup
+
+# Evitar subir arquivos compactados gerados localmente
+*.zip
