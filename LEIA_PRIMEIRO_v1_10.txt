@@ -1,0 +1,37 @@
+SMARTMONEY - VERSÃO 1.10
+
+Melhorias desta versão:
+
+1. Nome personalizado para cada controle
+- Ao criar um novo histórico, o usuário pode informar um nome, por exemplo:
+  "Viagem para Recife"
+  "Férias"
+  "Agosto 2026"
+  "Reforma da casa"
+- O nome identifica o conjunto completo de receitas e gastos.
+
+2. Histórico mais fácil de localizar
+- O nome do controle aparece na tabela de histórico.
+- A pesquisa do histórico também encontra pelo nome do controle.
+- A pesquisa continua encontrando pelos nomes dos gastos e receitas.
+
+3. Detalhes identificados pelo nome
+- A tela de detalhes mostra o nome do controle no topo.
+- Os gastos e receitas continuam sendo exibidos normalmente dentro daquele controle.
+
+4. Resultado identificado
+- Após criar o controle, o nome informado aparece na tela de resultado.
+
+5. Remoção identificada
+- A tela de remoção também mostra o nome do histórico que será excluído.
+- O nome fica registrado na justificativa de auditoria da exclusão.
+
+6. Responsividade
+- Mantida a correção responsiva da v1.9.1 para centralizar o conteúdo no celular.
+- O botão de tema permanece sobreposto no canto superior direito.
+
+IMPORTANTE:
+- Faça backup do banco e da versão 1.9 antes de substituir os arquivos.
+- Execute atualizar_banco_v1_10.sql uma única vez no banco que já está na v1.9.
+- Registros antigos continuam funcionando e recebem o nome padrão "Controle financeiro".
+- Não é necessário alterar gastos ou receitas existentes: eles continuam vinculados ao mesmo id_controle.

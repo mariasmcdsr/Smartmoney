@@ -1,0 +1,30 @@
+SMARTMONEY - VERSÃO 1.9
+
+Melhorias desta versão:
+
+1. Controle opcional de casal
+- Campo para nome da segunda pessoa.
+- Campo para renda da segunda pessoa.
+- A renda da segunda pessoa entra no total de rendas, sobra e percentual de gastos.
+
+2. Moeda por histórico
+- Real (BRL), Dólar (USD) ou Euro (EUR).
+- A moeda é definida ao criar o histórico.
+- Não existe conversão automática entre moedas nesta versão.
+
+3. Receitas no mesmo fluxo dos gastos
+- Adicionar receita esquecida em um histórico já existente.
+- Editar receita.
+- Remover receita com justificativa.
+- Recalcular automaticamente o histórico após a alteração.
+
+4. Responsividade para celular
+- Meta viewport adicionada.
+- Folha responsiva comum para as páginas.
+- Formulários e botões ocupam melhor a largura do celular.
+- Tabelas podem ser deslizadas horizontalmente quando necessário.
+
+IMPORTANTE:
+- Faça backup da versão 1.8 antes de substituir os arquivos.
+- Execute atualizar_banco_v1_9.sql uma única vez no banco existente antes de testar casal/moeda.
+- Históricos antigos ficam com renda da segunda pessoa = 0 e moeda = BRL.

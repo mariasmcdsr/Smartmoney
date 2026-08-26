@@ -1,0 +1,30 @@
+SMARTMONEY - VERSÃO 1.8
+
+Principais melhorias desta versão:
+
+1. Pesquisa no histórico financeiro
+- Campo de busca no historico.php.
+- Permite pesquisar por nome/tipo de gasto ou receita.
+- Exemplo: mercado, Uber, bico, salário extra.
+
+2. Filtro por tipo de movimentação
+- Opção para procurar em gastos e receitas, somente gastos ou somente receitas.
+
+3. Resumo da busca
+- Mostra quantidade de gastos/receitas encontrados.
+- Mostra o total em reais dos itens encontrados.
+
+4. Pesquisa dentro dos detalhes
+- No detalhes.php, agora é possível pesquisar dentro de um histórico específico.
+- Ajuda a encontrar rapidamente um gasto ou receita dentro de um registro antigo.
+
+5. Sem alteração obrigatória no banco
+- A versão 1.8 usa as mesmas tabelas principais da versão 1.7.
+- Não é necessário rodar novo CREATE TABLE.
+
+Arquivos alterados:
+- historico.php
+- detalhes.php
+
+Observação:
+Antes de substituir a versão online, faça backup da versão 1.7.
