@@ -1,124 +1,89 @@
 <?php
 session_start();
-
 if (!isset($_SESSION["id_usuario"])) {
     header("Location: login.php");
     exit;
 }
 
-include "conexao.php";
+require_once "classes/Database.php";
+require_once "classes/Formatador.php";
+require_once "classes/Financas.php";
+
+$db = (new Database())->conectar();
+$financas = new Financas($db);
 
 $id_usuario = $_SESSION["id_usuario"];
 $usuario_logado = $_SESSION["usuario"] ?? "";
+$nome_controle = trim($_POST["nome_controle"] ?? "Controle financeiro");
+$moeda = Formatador::moedaPermitida($_POST["moeda"] ?? "BRL");
+$nome_parceiro = trim($_POST["nome_parceiro"] ?? "");
+$renda_parceiro = max(0, floatval($_POST["renda_parceiro"] ?? 0));
+$salario = max(0, floatval($_POST["salario"] ?? 0));
 
-$salario = isset($_POST["salario"]) ? floatval($_POST["salario"]) : 0;
+$nomes_receitas = $_POST["nome_receita"] ?? [];
+$valores_receitas = $_POST["valor_receita"] ?? [];
+$datas_receitas = $_POST["data_receita"] ?? [];
 
-$nomes_receitas = isset($_POST["nome_receita"]) ? $_POST["nome_receita"] : [];
-$valores_receitas = isset($_POST["valor_receita"]) ? $_POST["valor_receita"] : [];
-$datas_receitas = isset($_POST["data_receita"]) ? $_POST["data_receita"] : [];
-
-$nomes_gastos = isset($_POST["nome_gasto"]) ? $_POST["nome_gasto"] : [];
-$valores_gastos = isset($_POST["valor_gasto"]) ? $_POST["valor_gasto"] : [];
-$datas_gastos = isset($_POST["data_gasto"]) ? $_POST["data_gasto"] : [];
+$nomes_gastos = $_POST["nome_gasto"] ?? [];
+$valores_gastos = $_POST["valor_gasto"] ?? [];
+$datas_gastos = $_POST["data_gasto"] ?? [];
 
 $total_receitas_adicionais = 0;
 $total_gastos = 0;
 
-for ($i = 0; $i < count($valores_receitas); $i++) {
-    $nome = isset($nomes_receitas[$i]) ? trim($nomes_receitas[$i]) : "";
-    $valor = isset($valores_receitas[$i]) ? floatval($valores_receitas[$i]) : 0;
-    $data = isset($datas_receitas[$i]) ? trim($datas_receitas[$i]) : "";
-
-    if ($nome !== "" && $valor > 0 && $data !== "") {
-        $total_receitas_adicionais += $valor;
+foreach ($valores_receitas as $i => $valor) {
+    if (!empty($nomes_receitas[$i]) && floatval($valor) > 0 && !empty($datas_receitas[$i])) {
+        $total_receitas_adicionais += floatval($valor);
     }
 }
 
-for ($i = 0; $i < count($valores_gastos); $i++) {
-    $valor = floatval($valores_gastos[$i]);
-    $total_gastos += $valor;
+foreach ($valores_gastos as $valor) {
+    $total_gastos += floatval($valor);
 }
 
-$total_rendas = $salario + $total_receitas_adicionais;
-$sobra = $total_rendas - $total_gastos;
+$total_rendas = $salario + $renda_parceiro + $total_receitas_adicionais;
 
-if ($total_rendas > 0) {
-    $porcentagem = ($total_gastos / $total_rendas) * 100;
-} else {
-    $porcentagem = 0;
-}
+$resultado = $financas->calcularSituacao($total_rendas, $total_gastos);
+$sobra = $resultado["sobra"];
+$porcentagem = $resultado["porcentagem"];
+$situacao = $resultado["situacao"];
+$cor = $resultado["cor"];
 
-if ($sobra > 0 && $porcentagem <= 70) {
-    $situacao = "Controlado";
-    $cor = "green";
-} elseif ($sobra > 0 && $porcentagem <= 100) {
-    $situacao = "Alerta";
-    $cor = "orange";
-} else {
-    $situacao = "Endividado";
-    $cor = "red";
-}
-
-$sql = $conn->prepare("INSERT INTO controle_financeiro 
-(id_usuario, usuario, salario, total_rendas, total_gastos, sobra, porcentagem_gasta, situacao)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-
-$sql->bind_param(
-    "isddddds",
-    $id_usuario,
-    $usuario_logado,
-    $salario,
-    $total_rendas,
-    $total_gastos,
-    $sobra,
-    $porcentagem,
-    $situacao
-);
+$sql = $db->prepare("INSERT INTO controle_financeiro (id_usuario, usuario, nome_controle, nome_parceiro, salario, renda_parceiro, moeda, total_rendas, total_gastos, sobra, porcentagem_gasta, situacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+$sql->bind_param("isssddsdddds", $id_usuario, $usuario_logado, $nome_controle, $nome_parceiro, $salario, $renda_parceiro, $moeda, $total_rendas, $total_gastos, $sobra, $porcentagem, $situacao);
 
 if ($sql->execute()) {
-    $id_controle = $conn->insert_id;
-
-    $receita_sql = $conn->prepare("INSERT INTO receitas 
-    (id_controle, usuario, tipo_receita, valor, data_receita) 
-    VALUES (?, ?, ?, ?, ?)");
-
-    for ($i = 0; $i < count($nomes_receitas); $i++) {
-        $tipo_receita = isset($nomes_receitas[$i]) ? trim($nomes_receitas[$i]) : "";
-        $valor_receita = isset($valores_receitas[$i]) ? floatval($valores_receitas[$i]) : 0;
-        $data_receita = isset($datas_receitas[$i]) ? trim($datas_receitas[$i]) : "";
-
-        if ($tipo_receita !== "" && $valor_receita > 0 && $data_receita !== "") {
-            $receita_sql->bind_param("issds", $id_controle, $usuario_logado, $tipo_receita, $valor_receita, $data_receita);
+    $id_controle = $db->insert_id;
+    
+    $receita_sql = $db->prepare("INSERT INTO receitas (id_controle, usuario, tipo_receita, valor, data_receita) VALUES (?, ?, ?, ?, ?)");
+    foreach ($nomes_receitas as $i => $nome) {
+        $val = floatval($valores_receitas[$i] ?? 0);
+        $dat = $datas_receitas[$i] ?? "";
+        if (!empty($nome) && $val > 0 && !empty($dat)) {
+            $receita_sql->bind_param("issds", $id_controle, $usuario_logado, trim($nome), $val, trim($dat));
             $receita_sql->execute();
         }
     }
 
-    $gasto_sql = $conn->prepare("INSERT INTO gastos 
-    (id_controle, usuario, tipo_gasto, valor, data_gasto) 
-    VALUES (?, ?, ?, ?, ?)");
-
-    for ($i = 0; $i < count($nomes_gastos); $i++) {
-        $tipo_gasto = trim($nomes_gastos[$i]);
-        $valor_gasto = floatval($valores_gastos[$i]);
-        $data_gasto = $datas_gastos[$i];
-
-        if ($tipo_gasto !== "" && $valor_gasto >= 0 && $data_gasto !== "") {
-            $gasto_sql->bind_param("issds", $id_controle, $usuario_logado, $tipo_gasto, $valor_gasto, $data_gasto);
+    $gasto_sql = $db->prepare("INSERT INTO gastos (id_controle, usuario, tipo_gasto, valor, data_gasto) VALUES (?, ?, ?, ?, ?)");
+    foreach ($nomes_gastos as $i => $nome) {
+        $val = floatval($valores_gastos[$i] ?? 0);
+        $dat = $datas_gastos[$i] ?? "";
+        if (!empty($nome) && $val >= 0 && !empty($dat)) {
+            $gasto_sql->bind_param("issds", $id_controle, $usuario_logado, trim($nome), $val, trim($dat));
             $gasto_sql->execute();
         }
     }
-
 } else {
-    die("Erro ao salvar no banco: " . $conn->error);
+    die("Erro ao salvar no banco: " . $db->error);
 }
-
-$conn->close();
 ?>
 
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Resultado - SmartMoney</title>
     <style>
         :root {
@@ -224,19 +189,24 @@ $conn->close();
             z-index: 999;
         }
     </style>
+    <link rel="stylesheet" href="responsivo.css">
 </head>
 
 <body>
+<script>if(localStorage.getItem('tema') === 'escuro') document.body.classList.add('tema-escuro');</script>
+
 <button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 
 <div class="container">
-    <h2>Resultado</h2>
+    <h2><?php echo htmlspecialchars($nome_controle); ?></h2>
+    <p class="observacao"><strong>Controle financeiro</strong></p>
 
-    <p><strong>Salário / renda principal:</strong> R$ <?php echo number_format($salario, 2, ',', '.'); ?></p>
-    <p><strong>Receitas adicionais:</strong> R$ <?php echo number_format($total_receitas_adicionais, 2, ',', '.'); ?></p>
-    <p><strong>Total de rendas:</strong> R$ <?php echo number_format($total_rendas, 2, ',', '.'); ?></p>
-    <p><strong>Total de gastos:</strong> R$ <?php echo number_format($total_gastos, 2, ',', '.'); ?></p>
-    <p><strong>Sobra:</strong> R$ <?php echo number_format($sobra, 2, ',', '.'); ?></p>
+    <p><strong>Salário / renda principal:</strong> <?php echo Formatador::10 ($salario, $moeda); ?></p>
+    <?php if ($renda_parceiro > 0 || $nome_parceiro !== "") { ?><p><strong>Segunda pessoa:</strong> <?php echo htmlspecialchars($nome_parceiro !== "" ? $nome_parceiro : "Pessoa 2"); ?> — <?php echo Formatador::10 ($renda_parceiro, $moeda); ?></p><?php } ?>
+    <p><strong>Receitas adicionais:</strong> <?php echo Formatador::10($total_receitas_adicionais, $moeda); ?></p>
+    <p><strong>Total de rendas:</strong> <?php echo Formatador::10($total_rendas, $moeda); ?></p>
+    <p><strong>Total de gastos:</strong> <?php echo Formatador::10($total_gastos, $moeda); ?></p>
+    <p><strong>Sobra:</strong> <?php echo Formatador::10($sobra, $moeda); ?></p>
     <p><strong>Porcentagem dos gastos:</strong> <?php echo number_format($porcentagem, 2, ',', '.'); ?>%</p>
 
     <p class="situacao" style="color: <?php echo $cor; ?>">
@@ -253,7 +223,7 @@ $conn->close();
                 if ($nome !== "" && $valor > 0 && $data !== "") { ?>
                     <p>
                         <strong><?php echo htmlspecialchars($nome); ?>:</strong>
-                        R$ <?php echo number_format($valor, 2, ',', '.'); ?>
+                        <?php echo Formatador::10($valor, $moeda); ?>
                         <br>
                         <small>Data da receita: <?php echo date("d/m/Y", strtotime($data)); ?></small>
                     </p>
@@ -267,7 +237,7 @@ $conn->close();
         <?php for ($i = 0; $i < count($nomes_gastos); $i++) { ?>
             <p>
                 <strong><?php echo htmlspecialchars($nomes_gastos[$i]); ?>:</strong>
-                R$ <?php echo number_format(floatval($valores_gastos[$i]), 2, ',', '.'); ?>
+                <?php echo 10 (floatval($valores_gastos[$i]), $moeda); ?>
                 <br>
                 <small>Data do gasto: <?php echo date("d/m/Y", strtotime($datas_gastos[$i])); ?></small>
             </p>

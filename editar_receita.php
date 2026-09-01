@@ -6,7 +6,12 @@ if (!isset($_SESSION["id_usuario"])) {
     exit;
 }
 
-include "conexao.php";
+require_once "classes/Database.php";
+require_once "classes/Formatador.php";
+require_once "classes/Financas.php";
+
+$db = (new Database())->conectar();
+$financas = new Financas($db);
 
 $id_usuario = $_SESSION["id_usuario"];
 $usuario_logado = $_SESSION["usuario"] ?? "";
@@ -18,11 +23,7 @@ if (!isset($_GET["id"])) {
 $id_receita = intval($_GET["id"]);
 $mensagem = "";
 
-$sql = $conn->prepare("SELECT r.*, c.id_usuario, c.salario
-FROM receitas r
-INNER JOIN controle_financeiro c ON r.id_controle = c.id_controle
-WHERE r.id_receita = ? AND c.id_usuario = ?");
-
+$sql = $db->prepare("SELECT r.*, c.id_usuario, c.salario FROM receitas r INNER JOIN controle_financeiro c ON r.id_controle = c.id_controle WHERE r.id_receita = ? AND c.id_usuario = ?");
 $sql->bind_param("ii", $id_receita, $id_usuario);
 $sql->execute();
 $resultado = $sql->get_result();
@@ -43,20 +44,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if (empty($justificativa)) {
             $mensagem = "Para remover a receita, preencha a justificativa.";
         } else {
-            $deleteReceita = $conn->prepare("DELETE FROM receitas WHERE id_receita = ?");
+            $deleteReceita = $db->prepare("DELETE FROM receitas WHERE id_receita = ?");
             $deleteReceita->bind_param("i", $id_receita);
 
             if ($deleteReceita->execute()) {
                 $valor_novo_texto = "Receita removida";
-
-                $log = $conn->prepare("INSERT INTO justificativas_edicao
-                (id_usuario, usuario, tipo_registro, id_registro, campo_editado, valor_antigo, valor_novo, justificativa)
-                VALUES (?, ?, 'receita', ?, 'exclusao', ?, ?, ?)");
-
+                $log = $db->prepare("INSERT INTO justificativas_edicao (id_usuario, usuario, tipo_registro, id_registro, campo_editado, valor_antigo, valor_novo, justificativa) VALUES (?, ?, 'receita', ?, 'exclusao', ?, ?, ?)");
                 $log->bind_param("isisss", $id_usuario, $usuario_logado, $id_receita, $valor_antigo_texto, $valor_novo_texto, $justificativa);
                 $log->execute();
 
-                recalcularControle($conn, $id_controle, $id_usuario);
+                // POO em ação: Usa a classe Financas para recalcular
+                $financas->recalcularControle($id_controle, $id_usuario);
 
                 header("Location: detalhes.php?id=" . $id_controle);
                 exit;
@@ -73,22 +71,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $mensagem = "Preencha todos os campos, incluindo a justificativa.";
         } else {
             $valor_novo_texto = "Nome: " . $tipo_receita . " | Valor: " . $valor . " | Data: " . $data_receita;
-
-            $updateReceita = $conn->prepare("UPDATE receitas 
-            SET tipo_receita = ?, valor = ?, data_receita = ?
-            WHERE id_receita = ?");
-
+            $updateReceita = $db->prepare("UPDATE receitas SET tipo_receita = ?, valor = ?, data_receita = ? WHERE id_receita = ?");
             $updateReceita->bind_param("sdsi", $tipo_receita, $valor, $data_receita, $id_receita);
 
             if ($updateReceita->execute()) {
-                $log = $conn->prepare("INSERT INTO justificativas_edicao
-                (id_usuario, usuario, tipo_registro, id_registro, campo_editado, valor_antigo, valor_novo, justificativa)
-                VALUES (?, ?, 'receita', ?, 'nome_valor_data', ?, ?, ?)");
-
+                $log = $db->prepare("INSERT INTO justificativas_edicao (id_usuario, usuario, tipo_registro, id_registro, campo_editado, valor_antigo, valor_novo, justificativa) VALUES (?, ?, 'receita', ?, 'nome_valor_data', ?, ?, ?)");
                 $log->bind_param("isisss", $id_usuario, $usuario_logado, $id_receita, $valor_antigo_texto, $valor_novo_texto, $justificativa);
                 $log->execute();
 
-                recalcularControle($conn, $id_controle, $id_usuario);
+                // POO em ação: Usa a classe Financas para recalcular
+                $financas->recalcularControle($id_controle, $id_usuario);
 
                 header("Location: detalhes.php?id=" . $id_controle);
                 exit;
@@ -98,54 +90,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 }
-
-function recalcularControle($conn, $id_controle, $id_usuario) {
-    $sqlGastos = $conn->prepare("SELECT SUM(valor) AS total FROM gastos WHERE id_controle = ?");
-    $sqlGastos->bind_param("i", $id_controle);
-    $sqlGastos->execute();
-    $resultadoGastos = $sqlGastos->get_result();
-    $dadosGastos = $resultadoGastos->fetch_assoc();
-    $total_gastos = floatval($dadosGastos["total"]);
-
-    $sqlReceitas = $conn->prepare("SELECT SUM(valor) AS total FROM receitas WHERE id_controle = ?");
-    $sqlReceitas->bind_param("i", $id_controle);
-    $sqlReceitas->execute();
-    $resultadoReceitas = $sqlReceitas->get_result();
-    $dadosReceitas = $resultadoReceitas->fetch_assoc();
-    $total_receitas_adicionais = floatval($dadosReceitas["total"]);
-
-    $sqlControle = $conn->prepare("SELECT salario FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
-    $sqlControle->bind_param("ii", $id_controle, $id_usuario);
-    $sqlControle->execute();
-    $resultadoControle = $sqlControle->get_result();
-    $dadosControle = $resultadoControle->fetch_assoc();
-
-    $salario = floatval($dadosControle["salario"]);
-    $total_rendas = $salario + $total_receitas_adicionais;
-    $sobra = $total_rendas - $total_gastos;
-    $porcentagem = ($total_rendas > 0) ? ($total_gastos / $total_rendas) * 100 : 0;
-
-    if ($sobra > 0 && $porcentagem <= 70) {
-        $situacao = "Controlado";
-    } elseif ($sobra > 0 && $porcentagem <= 100) {
-        $situacao = "Alerta";
-    } else {
-        $situacao = "Endividado";
-    }
-
-    $updateControle = $conn->prepare("UPDATE controle_financeiro
-    SET total_rendas = ?, total_gastos = ?, sobra = ?, porcentagem_gasta = ?, situacao = ?
-    WHERE id_controle = ? AND id_usuario = ?");
-
-    $updateControle->bind_param("ddddsii", $total_rendas, $total_gastos, $sobra, $porcentagem, $situacao, $id_controle, $id_usuario);
-    $updateControle->execute();
-}
 ?>
 
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Editar receita - SmartMoney</title>
     <style>
         :root {
@@ -267,9 +218,12 @@ function recalcularControle($conn, $id_controle, $id_usuario) {
             z-index: 999;
         }
     </style>
+    <link rel="stylesheet" href="responsivo.css">
 </head>
 
 <body>
+<script>if(localStorage.getItem('tema') === 'escuro') document.body.classList.add('tema-escuro');</script>
+
 <button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 
 <div class="container">

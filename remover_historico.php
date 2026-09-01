@@ -1,32 +1,27 @@
 <?php
 session_start();
-
 if (!isset($_SESSION["id_usuario"])) {
     header("Location: login.php");
     exit;
 }
 
-include "conexao.php";
+require_once "classes/Database.php";
+require_once "classes/Formatador.php";
 
+$db = (new Database())->conectar();
 $id_usuario = $_SESSION["id_usuario"];
 $usuario_logado = $_SESSION["usuario"] ?? "";
 
-if (!isset($_GET["id"])) {
-    die("ID do histórico não informado.");
-}
-
+if (!isset($_GET["id"])) die("ID do histórico não informado.");
 $id_controle = intval($_GET["id"]);
 $mensagem = "";
 
-$sql = $conn->prepare("SELECT * FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
+$sql = $db->prepare("SELECT * FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
 $sql->bind_param("ii", $id_controle, $id_usuario);
 $sql->execute();
 $resultado = $sql->get_result();
 
-if ($resultado->num_rows == 0) {
-    die("Histórico não encontrado ou você não tem permissão para remover.");
-}
-
+if ($resultado->num_rows == 0) die("Histórico não encontrado ou você não tem permissão para remover.");
 $controle = $resultado->fetch_assoc();
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -35,30 +30,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (empty($justificativa)) {
         $mensagem = "Preencha a justificativa para remover este histórico.";
     } else {
-        $valor_antigo_texto = "Histórico removido | Renda principal: " . $controle["salario"] .
-            " | Total de rendas: " . $controle["total_rendas"] .
-            " | Total de gastos: " . $controle["total_gastos"] .
-            " | Sobra: " . $controle["sobra"] .
-            " | Situação: " . $controle["situacao"] .
-            " | Data: " . $controle["data_registro"];
-
+        $valor_antigo_texto = "Histórico removido | Nome: " . ($controle["nome_controle"] ?? "Controle financeiro");
         $valor_novo_texto = "Histórico removido por completo";
 
-        $log = $conn->prepare("INSERT INTO justificativas_edicao
-        (id_usuario, usuario, tipo_registro, id_registro, campo_editado, valor_antigo, valor_novo, justificativa)
-        VALUES (?, ?, 'historico', ?, 'exclusao_total', ?, ?, ?)");
+        $log = $db->prepare("INSERT INTO justificativas_edicao (id_usuario, usuario, tipo_registro, id_registro, campo_editado, valor_antigo, valor_novo, justificativa) VALUES (?, ?, 'historico', ?, 'exclusao_total', ?, ?, ?)");
         $log->bind_param("isisss", $id_usuario, $usuario_logado, $id_controle, $valor_antigo_texto, $valor_novo_texto, $justificativa);
         $log->execute();
 
-        $deleteGastos = $conn->prepare("DELETE FROM gastos WHERE id_controle = ?");
+        $deleteGastos = $db->prepare("DELETE FROM gastos WHERE id_controle = ?");
         $deleteGastos->bind_param("i", $id_controle);
         $deleteGastos->execute();
 
-        $deleteReceitas = $conn->prepare("DELETE FROM receitas WHERE id_controle = ?");
+        $deleteReceitas = $db->prepare("DELETE FROM receitas WHERE id_controle = ?");
         $deleteReceitas->bind_param("i", $id_controle);
         $deleteReceitas->execute();
 
-        $deleteControle = $conn->prepare("DELETE FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
+        $deleteControle = $db->prepare("DELETE FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
         $deleteControle->bind_param("ii", $id_controle, $id_usuario);
 
         if ($deleteControle->execute()) {
@@ -75,6 +62,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Remover histórico - SmartMoney</title>
     <style>
         :root {
@@ -183,12 +171,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             z-index: 999;
         }
     </style>
+    <link rel="stylesheet" href="responsivo.css">
 </head>
+
 <body>
+<script>if(localStorage.getItem('tema') === 'escuro') document.body.classList.add('tema-escuro');</script>
+
 <button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 
 <div class="container">
     <h2>Remover histórico</h2>
+
+    <p style="text-align:center;"><strong><?php echo htmlspecialchars($controle["nome_controle"] ?? "Controle financeiro"); ?></strong></p>
 
     <?php if (!empty($mensagem)) { ?>
         <p class="mensagem"><?php echo $mensagem; ?></p>
@@ -196,9 +190,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     <div class="aviso">
         <p><strong>Atenção:</strong> essa ação remove o histórico completo selecionado, incluindo os gastos e receitas vinculados a ele.</p>
-        <p>Renda principal: <strong>R$ <?php echo number_format($controle["salario"], 2, ',', '.'); ?></strong></p>
-        <p>Total de rendas: <strong>R$ <?php echo number_format($controle["total_rendas"], 2, ',', '.'); ?></strong></p>
-        <p>Total de gastos: <strong>R$ <?php echo number_format($controle["total_gastos"], 2, ',', '.'); ?></strong></p>
+        <p>Renda principal: <strong><?php echo Formatador::formatarMoeda($controle["salario"], $controle["moeda"] ?? "BRL"); ?></strong></p>
+        <p>Total de rendas: <strong><?php echo Formatador::formatarMoeda($controle["total_rendas"], $controle["moeda"] ?? "BRL"); ?></strong></p>
+        <p>Total de gastos: <strong><?php echo Formatador::formatarMoeda($controle["total_gastos"], $controle["moeda"] ?? "BRL"); ?></strong></p>
     </div>
 
     <form method="post">

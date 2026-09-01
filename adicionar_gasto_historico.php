@@ -1,95 +1,46 @@
 <?php
 session_start();
+if (!isset($_SESSION["id_usuario"])) { header("Location: login.php"); exit; }
 
-if (!isset($_SESSION["id_usuario"])) {
-    header("Location: login.php");
-    exit;
-}
+require_once "classes/Database.php";
+require_once "classes/Formatador.php";
+require_once "classes/Financas.php";
 
-include "conexao.php";
+$db = (new Database())->conectar();
+$financas = new Financas($db);
 
 $id_usuario = $_SESSION["id_usuario"];
 $usuario_logado = $_SESSION["usuario"] ?? "";
-
-if (!isset($_GET["id"])) {
-    die("ID do histórico não informado.");
-}
-
+if (!isset($_GET["id"])) die("ID não informado.");
 $id_controle = intval($_GET["id"]);
-$mensagem = "";
 
-$sql = $conn->prepare("SELECT * FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
+// Busca dados e valida
+$sql = $db->prepare("SELECT moeda FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
 $sql->bind_param("ii", $id_controle, $id_usuario);
 $sql->execute();
 $resultado = $sql->get_result();
+if ($resultado->num_rows == 0) die("Histórico não encontrado.");
+$moeda = Formatador::moedaPermitida($resultado->fetch_assoc()["moeda"]);
 
-if ($resultado->num_rows == 0) {
-    die("Histórico não encontrado ou você não tem permissão para alterar.");
-}
-
-$controle = $resultado->fetch_assoc();
-
+$mensagem = "";
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $tipo_gasto = trim($_POST["tipo_gasto"]);
+    $tipo = trim($_POST["tipo_gasto"]);
     $valor = floatval($_POST["valor"]);
-    $data_gasto = $_POST["data_gasto"];
+    $data = $_POST["data_gasto"];
 
-    if (empty($tipo_gasto) || empty($data_gasto) || $valor <= 0) {
-        $mensagem = "Preencha nome, valor maior que zero e data do gasto.";
+    if (empty($tipo) || empty($data) || $valor <= 0) {
+        $mensagem = "Preencha todos os dados corretamente.";
     } else {
-        $insert = $conn->prepare("INSERT INTO gastos (id_controle, usuario, tipo_gasto, valor, data_gasto) VALUES (?, ?, ?, ?, ?)");
-        $insert->bind_param("issds", $id_controle, $usuario_logado, $tipo_gasto, $valor, $data_gasto);
-
+        $insert = $db->prepare("INSERT INTO gastos (id_controle, usuario, tipo_gasto, valor, data_gasto) VALUES (?, ?, ?, ?, ?)");
+        $insert->bind_param("issds", $id_controle, $usuario_logado, $tipo, $valor, $data);
         if ($insert->execute()) {
-            recalcularControle($conn, $id_controle, $id_usuario);
+            $financas->recalcularControle($id_controle, $id_usuario);
             header("Location: detalhes.php?id=" . $id_controle);
             exit;
         } else {
-            $mensagem = "Erro ao adicionar gasto.";
+            $mensagem = "Erro ao adicionar.";
         }
     }
-}
-
-function recalcularControle($conn, $id_controle, $id_usuario) {
-    $sqlGastos = $conn->prepare("SELECT SUM(valor) AS total FROM gastos WHERE id_controle = ?");
-    $sqlGastos->bind_param("i", $id_controle);
-    $sqlGastos->execute();
-    $resultadoGastos = $sqlGastos->get_result();
-    $dadosGastos = $resultadoGastos->fetch_assoc();
-    $total_gastos = floatval($dadosGastos["total"]);
-
-    $sqlReceitas = $conn->prepare("SELECT SUM(valor) AS total FROM receitas WHERE id_controle = ?");
-    $sqlReceitas->bind_param("i", $id_controle);
-    $sqlReceitas->execute();
-    $resultadoReceitas = $sqlReceitas->get_result();
-    $dadosReceitas = $resultadoReceitas->fetch_assoc();
-    $total_receitas_adicionais = floatval($dadosReceitas["total"]);
-
-    $sqlControle = $conn->prepare("SELECT salario FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
-    $sqlControle->bind_param("ii", $id_controle, $id_usuario);
-    $sqlControle->execute();
-    $resultadoControle = $sqlControle->get_result();
-    $dadosControle = $resultadoControle->fetch_assoc();
-
-    $salario = floatval($dadosControle["salario"]);
-    $total_rendas = $salario + $total_receitas_adicionais;
-    $sobra = $total_rendas - $total_gastos;
-    $porcentagem = ($total_rendas > 0) ? ($total_gastos / $total_rendas) * 100 : 0;
-
-    if ($sobra > 0 && $porcentagem <= 70) {
-        $situacao = "Controlado";
-    } elseif ($sobra > 0 && $porcentagem <= 100) {
-        $situacao = "Alerta";
-    } else {
-        $situacao = "Endividado";
-    }
-
-    $updateControle = $conn->prepare("UPDATE controle_financeiro
-    SET total_rendas = ?, total_gastos = ?, sobra = ?, porcentagem_gasta = ?, situacao = ?
-    WHERE id_controle = ? AND id_usuario = ?");
-
-    $updateControle->bind_param("ddddsii", $total_rendas, $total_gastos, $sobra, $porcentagem, $situacao, $id_controle, $id_usuario);
-    $updateControle->execute();
 }
 ?>
 
@@ -97,6 +48,7 @@ function recalcularControle($conn, $id_controle, $id_usuario) {
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Adicionar gasto - SmartMoney</title>
     <style>
         :root {
@@ -211,10 +163,13 @@ function recalcularControle($conn, $id_controle, $id_usuario) {
             z-index: 999;
         }
     </style>
+    <link rel="stylesheet" href="responsivo.css">
 </head>
-<body>
-<button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 
+<body>
+<script>if(localStorage.getItem('tema') === 'escuro') document.body.classList.add('tema-escuro');</script>
+
+<button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 <div class="container">
     <h2>Adicionar gasto esquecido</h2>
 
@@ -230,7 +185,7 @@ function recalcularControle($conn, $id_controle, $id_usuario) {
         <label>Nome do gasto</label>
         <input type="text" name="tipo_gasto" placeholder="Ex: mercado, transporte, remédio" required>
 
-        <label>Valor</label>
+        <label>Valor (<?php echo htmlspecialchars(Formatador::simboloMoeda($moeda)); ?>)</label>
         <input type="number" step="0.01" min="0.01" name="valor" placeholder="Ex: 50.00" required>
 
         <label>Data do gasto</label>

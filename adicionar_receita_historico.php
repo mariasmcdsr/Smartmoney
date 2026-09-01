@@ -1,29 +1,44 @@
 <?php
 session_start();
+if (!isset($_SESSION["id_usuario"])) { header("Location: login.php"); exit; }
+
 require_once "classes/Database.php";
-require_once "classes/Usuario.php";
+require_once "classes/Formatador.php";
+require_once "classes/Financas.php";
+
+$db = (new Database())->conectar();
+$financas = new Financas($db);
+
+$id_usuario = $_SESSION["id_usuario"];
+$usuario_logado = $_SESSION["usuario"] ?? "";
+if (!isset($_GET["id"])) die("ID não informado.");
+$id_controle = intval($_GET["id"]);
+
+// Busca dados e valida
+$sql = $db->prepare("SELECT moeda FROM controle_financeiro WHERE id_controle = ? AND id_usuario = ?");
+$sql->bind_param("ii", $id_controle, $id_usuario);
+$sql->execute();
+$resultado = $sql->get_result();
+if ($resultado->num_rows == 0) die("Histórico não encontrado.");
+$moeda = Formatador::moedaPermitida($resultado->fetch_assoc()["moeda"]);
 
 $mensagem = "";
-
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $nomeUsuario = trim($_POST["usuario"]);
-    $senha = $_POST["senha"];
-    $confirmar_senha = $_POST["confirmar_senha"];
+    $tipo = trim($_POST["tipo_receita"]);
+    $valor = floatval($_POST["valor"]);
+    $data = $_POST["data_receita"];
 
-    if (empty($nomeUsuario) || empty($senha) || empty($confirmar_senha)) {
-        $mensagem = "Preencha todos os campos.";
-    } elseif ($senha !== $confirmar_senha) {
-        $mensagem = "As senhas não são iguais.";
+    if (empty($tipo) || empty($data) || $valor <= 0) {
+        $mensagem = "Preencha todos os dados corretamente.";
     } else {
-        $db = (new Database())->conectar();
-        $usuarioObj = new Usuario($db);
-        $resultado = $usuarioObj->cadastrar($nomeUsuario, $senha);
-        
-        if ($resultado === true) {
-            header("Location: login.php");
+        $insert = $db->prepare("INSERT INTO receitas (id_controle, usuario, tipo_receita, valor, data_receita) VALUES (?, ?, ?, ?, ?)");
+        $insert->bind_param("issds", $id_controle, $usuario_logado, $tipo, $valor, $data);
+        if ($insert->execute()) {
+            $financas->recalcularControle($id_controle, $id_usuario);
+            header("Location: detalhes.php?id=" . $id_controle);
             exit;
         } else {
-            $mensagem = $resultado;
+            $mensagem = "Erro ao adicionar.";
         }
     }
 }
@@ -34,8 +49,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadastro - SmartMoney</title>
-
+    <title>Adicionar receita - SmartMoney</title>
     <style>
         :root {
             --fundo: linear-gradient(to right, #4facfe, #00f2fe);
@@ -63,15 +77,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         body {
             margin: 0;
-            padding: 0;
+            padding: 30px;
             font-family: Arial, sans-serif;
             background: var(--fundo);
             color: var(--texto);
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            transition: 0.3s;
+            min-height: 100vh;
         }
 
         .container {
@@ -79,52 +92,44 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             color: var(--texto);
             padding: 25px;
             border-radius: 12px;
-            width: 350px;
+            width: 430px;
             box-shadow: 0 10px 15px rgba(0,0,0,0.2);
-            text-align: center;
         }
 
-        h2 {
+        h2 { text-align: center; }
+
+        .aviso {
+            background: rgba(79, 172, 254, 0.12);
+            border: 1px solid var(--borda);
+            padding: 12px;
+            border-radius: 10px;
+            color: var(--texto-secundario);
             margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        label {
+            display: block;
+            margin-top: 12px;
+            font-weight: bold;
         }
 
         input {
             width: 100%;
             padding: 10px;
-            margin-top: 15px;
+            margin-top: 6px;
             border-radius: 10px;
             border: 1px solid var(--borda);
             box-sizing: border-box;
             background: var(--input);
             color: var(--texto);
-        }
-
-        input::placeholder {
-            color: var(--texto-secundario);
-        }
-
-        .campo-senha {
-            position: relative;
-            width: 100%;
-        }
-
-        .campo-senha input {
-            padding-right: 45px;
-        }
-
-        .campo-senha span {
-            position: absolute;
-            right: 12px;
-            top: 25px;
-            cursor: pointer;
-            font-size: 17px;
-            user-select: none;
+            font-family: Arial, sans-serif;
         }
 
         button {
             width: 100%;
             padding: 10px;
-            margin-top: 20px;
+            margin-top: 18px;
             border-radius: 10px;
             background: var(--botao);
             color: var(--botao-texto);
@@ -133,23 +138,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             cursor: pointer;
         }
 
-        button:hover {
-            opacity: 0.85;
-        }
-
         .mensagem {
             color: red;
-            margin-top: 10px;
-            font-size: 14px;
-        }
-
-        a {
-            display: block;
-            margin-top: 15px;
-            color: var(--azul);
-            text-decoration: none;
+            text-align: center;
             font-weight: bold;
         }
+
+        .links { text-align: center; margin-top: 15px; }
+        .links a { color: var(--azul); text-decoration: none; font-weight: bold; }
 
         .btn-tema {
             position: fixed;
@@ -176,47 +172,37 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 
 <div class="container">
-    <h2>Cadastro</h2>
+    <h2>Adicionar receita esquecida</h2>
 
-    <form method="post">
-        <input type="text" name="usuario" placeholder="Nome de usuário" required>
-
-        <div class="campo-senha">
-            <input type="password" id="senha" name="senha" placeholder="Senha" required>
-            <span onclick="mostrarSenha('senha', this)">👁️</span>
-        </div>
-
-        <div class="campo-senha">
-            <input type="password" id="confirmar_senha" name="confirmar_senha" placeholder="Confirmar senha" required>
-            <span onclick="mostrarSenha('confirmar_senha', this)">👁️</span>
-        </div>
-
-        <button type="submit">Cadastrar</button>
-    </form>
+    <div class="aviso">
+        Esta receita será incluído no histórico selecionado. Depois disso, o sistema recalcula automaticamente o total de receitas, a sobra, a porcentagem e a situação financeira.
+    </div>
 
     <?php if (!empty($mensagem)) { ?>
         <p class="mensagem"><?php echo $mensagem; ?></p>
     <?php } ?>
 
-    <a href="login.php">Já tenho conta</a>
+    <form method="post">
+        <label>Nome do receita</label>
+        <input type="text" name="tipo_receita" placeholder="Ex: mercado, transporte, remédio" required>
+
+        <label>Valor (<?php echo htmlspecialchars(Formatador::simboloMoeda($moeda)); ?>)</label>
+        <input type="number" step="0.01" min="0.01" name="valor" placeholder="Ex: 50.00" required>
+
+        <label>Data do receita</label>
+        <input type="date" name="data_receita" required>
+
+        <button type="submit">Salvar receita no histórico</button>
+    </form>
+
+    <div class="links">
+        <a href="detalhes.php?id=<?php echo $id_controle; ?>">Voltar aos detalhes</a>
+    </div>
 </div>
 
 <script>
-function mostrarSenha(idCampo, icone) {
-    const campo = document.getElementById(idCampo);
-
-    if (campo.type === "password") {
-        campo.type = "text";
-        icone.textContent = "🙈";
-    } else {
-        campo.type = "password";
-        icone.textContent = "👁️";
-    }
-}
-
 function aplicarTemaSalvo() {
     const temaSalvo = localStorage.getItem("tema");
-
     if (temaSalvo === "escuro") {
         document.body.classList.add("tema-escuro");
         document.getElementById("btnTema").textContent = "☀️ Tema claro";
@@ -228,7 +214,6 @@ function aplicarTemaSalvo() {
 
 function trocarTema() {
     document.body.classList.toggle("tema-escuro");
-
     if (document.body.classList.contains("tema-escuro")) {
         localStorage.setItem("tema", "escuro");
         document.getElementById("btnTema").textContent = "☀️ Tema claro";
@@ -240,6 +225,5 @@ function trocarTema() {
 
 aplicarTemaSalvo();
 </script>
-
 </body>
 </html>

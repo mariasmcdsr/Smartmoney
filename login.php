@@ -1,33 +1,23 @@
 <?php
 session_start();
-include "conexao.php";
+require_once "classes/Database.php";
+require_once "classes/Usuario.php";
 
 $mensagem = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $usuario = trim($_POST["usuario"]);
+    $nomeUsuario = trim($_POST["usuario"]);
     $senha = $_POST["senha"];
 
-    if (empty($usuario) || empty($senha)) {
+    if (empty($nomeUsuario) || empty($senha)) {
         $mensagem = "Preencha todos os campos.";
     } else {
-        $sql = $conn->prepare("SELECT id_usuario, usuario, senha FROM usuarios WHERE usuario = ?");
-        $sql->bind_param("s", $usuario);
-        $sql->execute();
-        $resultado = $sql->get_result();
+        $db = (new Database())->conectar();
+        $usuarioObj = new Usuario($db);
 
-        if ($resultado->num_rows == 1) {
-            $dados = $resultado->fetch_assoc();
-
-            if (password_verify($senha, $dados["senha"])) {
-                $_SESSION["id_usuario"] = $dados["id_usuario"];
-                $_SESSION["usuario"] = $dados["usuario"];
-
-                header("Location: money.php");
-                exit;
-            } else {
-                $mensagem = "Usuário ou senha incorretos.";
-            }
+        if ($usuarioObj->autenticar($nomeUsuario, $senha)) {
+            header("Location: money.php");
+            exit;
         } else {
             $mensagem = "Usuário ou senha incorretos.";
         }
@@ -39,6 +29,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - SmartMoney</title>
 
     <style>
@@ -172,9 +163,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             z-index: 999;
         }
     </style>
+    <link rel="stylesheet" href="responsivo.css">
 </head>
 
 <body>
+<script>if(localStorage.getItem('tema') === 'escuro') document.body.classList.add('tema-escuro');</script>
 
 <button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 

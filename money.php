@@ -1,31 +1,31 @@
 <?php
 session_start();
-
 if (!isset($_SESSION["id_usuario"])) {
     header("Location: login.php");
     exit;
 }
 
-include "conexao.php";
+require_once "classes/Database.php";
+require_once "classes/Formatador.php";
+require_once "classes/Financas.php";
+
+$db = (new Database())->conectar();
+$financas = new Financas($db);
 
 $id_usuario = $_SESSION["id_usuario"];
-$ultimo_salario = null;
+$ultimoRegistro = $financas->buscarUltimoSalario($id_usuario);
 
-$consulta_salario = $conn->prepare("SELECT salario FROM controle_financeiro WHERE id_usuario = ? ORDER BY id_controle DESC LIMIT 1");
-$consulta_salario->bind_param("i", $id_usuario);
-$consulta_salario->execute();
-$resultado_salario = $consulta_salario->get_result();
-
-if ($resultado_salario->num_rows > 0) {
-    $dados_salario = $resultado_salario->fetch_assoc();
-    $ultimo_salario = $dados_salario["salario"];
-}
+$ultimo_salario = $ultimoRegistro["salario"] ?? null;
+$ultima_moeda = Formatador::moedaPermitida($ultimoRegistro["moeda"] ?? "BRL");
+$ultimo_nome_parceiro = $ultimoRegistro["nome_parceiro"] ?? "";
+$ultima_renda_parceiro = floatval($ultimoRegistro["renda_parceiro"] ?? 0);
 ?>
 
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SmartMoney</title>
     <style>
         :root {
@@ -191,9 +191,12 @@ if ($resultado_salario->num_rows > 0) {
             z-index: 999;
         }
     </style>
+    <link rel="stylesheet" href="responsivo.css">
 </head>
 
 <body>
+<script>if(localStorage.getItem('tema') === 'escuro') document.body.classList.add('tema-escuro');</script>
+
 <button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
 
 <div class="container">
@@ -204,17 +207,34 @@ if ($resultado_salario->num_rows > 0) {
     </p>
 
     <form action="salario.php" method="post">
+        <h3>Nome do controle</h3>
+        <p class="observacao">Dê um nome para encontrar este conjunto financeiro depois.</p>
+        <input type="text" id="nome_controle" name="nome_controle" maxlength="150" placeholder="Ex.: Viagem para Recife" required>
+
         <h3>Renda principal do mês</h3>
         <p class="observacao">Informe o salário ou renda principal deste período.</p>
         <input type="number" step="0.01" min="0" id="salario" name="salario" placeholder="Salário / renda principal" required>
 
+        <label for="moeda"><strong>Moeda do controle</strong></label>
+        <select id="moeda" name="moeda" class="campo-select" required>
+            <option value="BRL" <?php if ($ultima_moeda === "BRL") echo "selected"; ?>>Real (BRL)</option>
+            <option value="USD" <?php if ($ultima_moeda === "USD") echo "selected"; ?>>Dólar (USD)</option>
+            <option value="EUR" <?php if ($ultima_moeda === "EUR") echo "selected"; ?>>Euro (EUR)</option>
+        </select>
+        <p class="observacao">A moeda vale para todo este histórico. Não há conversão automática entre moedas.</p>
+
         <?php if ($ultimo_salario !== null) { ?>
             <button type="button" class="btn-salario" onclick="usarUltimoSalario('<?php echo number_format($ultimo_salario, 2, '.', ''); ?>')">
-                Usar salário anterior: R$ <?php echo number_format($ultimo_salario, 2, ',', '.'); ?>
+                Usar salário anterior: <?php echo Formatador::formatarMoeda($ultimo_salario, $ultima_moeda); ?>
             </button>
         <?php } else { ?>
             <p class="observacao">Ainda não existe salário anterior salvo para este usuário.</p>
         <?php } ?>
+
+        <h3>Controle de casal (opcional)</h3>
+        <p class="observacao">Se quiser controlar duas rendas no mesmo histórico, informe a segunda pessoa e a renda dela.</p>
+        <input type="text" name="nome_parceiro" value="<?php echo htmlspecialchars($ultimo_nome_parceiro); ?>" placeholder="Nome da segunda pessoa (opcional)">
+        <input type="number" step="0.01" min="0" name="renda_parceiro" value="<?php echo $ultima_renda_parceiro > 0 ? number_format($ultima_renda_parceiro, 2, '.', '') : ''; ?>" placeholder="Renda da segunda pessoa (opcional)">
 
         <h3>Receitas adicionais</h3>
         <p class="observacao">Use somente se tiver renda extra, como hora extra, bico, venda ou pagamento recebido.</p>
