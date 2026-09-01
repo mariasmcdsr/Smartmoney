@@ -1,0 +1,700 @@
+<?php
+session_start();
+
+if (!isset($_SESSION["id_usuario"])) {
+    header("Location: login.php");
+    exit;
+}
+
+require_once "classes/Database.php";
+require_once "classes/Formatador.php";
+require_once "classes/Financas.php";
+
+$db = (new Database())->conectar();
+$id_usuario = $_SESSION["id_usuario"];
+
+$periodo = isset($_GET["periodo"]) ? $_GET["periodo"] : "ano";
+$anoSelecionado = isset($_GET["ano"]) ? intval($_GET["ano"]) : intval(date("Y"));
+$mesSelecionado = isset($_GET["mes"]) ? intval($_GET["mes"]) : intval(date("m"));
+
+$busca = isset($_GET["busca"]) ? trim($_GET["busca"]) : "";
+$tipoBusca = isset($_GET["tipo_busca"]) ? $_GET["tipo_busca"] : "todos";
+$tiposPermitidos = ["todos", "gastos", "receitas", "nome"];
+if (!in_array($tipoBusca, $tiposPermitidos)) {
+    $tipoBusca = "todos";
+}
+
+function executarConsultaPreparada($db, $sql, $tipos = "", $valores = []) {
+    $stmt = $db->prepare($sql);
+    if (!$stmt) {
+        die("Erro ao preparar consulta: " . $db->error);
+    }
+
+    if ($tipos != "" && count($valores) > 0) {
+        $referencias = [];
+        foreach ($valores as $chave => $valor) {
+            $referencias[$chave] = &$valores[$chave];
+        }
+        array_unshift($referencias, $tipos);
+        call_user_func_array([$stmt, "bind_param"], $referencias);
+    }
+
+    $stmt->execute();
+    return $stmt->get_result();
+}
+
+$nomesMeses = [
+    1 => "Jan", 2 => "Fev", 3 => "Mar", 4 => "Abr", 5 => "Mai", 6 => "Jun",
+    7 => "Jul", 8 => "Ago", 9 => "Set", 10 => "Out", 11 => "Nov", 12 => "Dez"
+];
+
+$labelsGrafico = [];
+$valoresGrafico = [];
+$tituloGrafico = "Gastos no ano " . $anoSelecionado;
+
+if ($periodo == "ano") {
+    for ($mes = 1; $mes <= 12; $mes++) {
+        $labelsGrafico[] = $nomesMeses[$mes];
+        $valoresGrafico[] = 0;
+    }
+
+    $sqlGrafico = $db->prepare("
+        SELECT MONTH(g.data_gasto) AS mes, SUM(g.valor) AS total
+        FROM gastos g
+        INNER JOIN controle_financeiro c ON g.id_controle = c.id_controle
+        WHERE c.id_usuario = ? AND YEAR(g.data_gasto) = ?
+        GROUP BY MONTH(g.data_gasto)
+    ");
+    $sqlGrafico->bind_param("ii", $id_usuario, $anoSelecionado);
+    $sqlGrafico->execute();
+    $resultadoGrafico = $sqlGrafico->get_result();
+
+    while ($linhaGrafico = $resultadoGrafico->fetch_assoc()) {
+        $indice = intval($linhaGrafico["mes"]) - 1;
+        $valoresGrafico[$indice] = floatval($linhaGrafico["total"]);
+    }
+} elseif ($periodo == "6m" || $periodo == "3m") {
+    $quantidadeMeses = ($periodo == "6m") ? 6 : 3;
+    $tituloGrafico = "Gastos dos últimos " . $quantidadeMeses . " meses";
+
+    $inicio = new DateTime($anoSelecionado . "-" . str_pad($mesSelecionado, 2, "0", STR_PAD_LEFT) . "-01");
+    $inicio->modify("-" . ($quantidadeMeses - 1) . " months");
+
+    $datasMeses = [];
+    for ($i = 0; $i < $quantidadeMeses; $i++) {
+        $dataAtual = clone $inicio;
+        $dataAtual->modify("+" . $i . " months");
+        $chave = $dataAtual->format("Y-m");
+        $datasMeses[$chave] = $i;
+        $labelsGrafico[] = $nomesMeses[intval($dataAtual->format("m"))] . "/" . $dataAtual->format("Y");
+        $valoresGrafico[] = 0;
+    }
+
+    $dataInicio = $inicio->format("Y-m-01");
+    $fim = new DateTime($anoSelecionado . "-" . str_pad($mesSelecionado, 2, "0", STR_PAD_LEFT) . "-01");
+    $fim->modify("last day of this month");
+    $dataFim = $fim->format("Y-m-d");
+
+    $sqlGrafico = $db->prepare("
+        SELECT DATE_FORMAT(g.data_gasto, '%Y-%m') AS mes, SUM(g.valor) AS total
+        FROM gastos g
+        INNER JOIN controle_financeiro c ON g.id_controle = c.id_controle
+        WHERE c.id_usuario = ? AND DATE(g.data_gasto) BETWEEN ? AND ?
+        GROUP BY DATE_FORMAT(g.data_gasto, '%Y-%m')
+    ");
+    $sqlGrafico->bind_param("iss", $id_usuario, $dataInicio, $dataFim);
+    $sqlGrafico->execute();
+    $resultadoGrafico = $sqlGrafico->get_result();
+
+    while ($linhaGrafico = $resultadoGrafico->fetch_assoc()) {
+        $chave = $linhaGrafico["mes"];
+        if (isset($datasMeses[$chave])) {
+            $valoresGrafico[$datasMeses[$chave]] = floatval($linhaGrafico["total"]);
+        }
+    }
+} else {
+    $tituloGrafico = "Gastos diários em " . $nomesMeses[$mesSelecionado] . "/" . $anoSelecionado;
+
+    $numDias = cal_days_in_month(CAL_GREGORIAN, $mesSelecionado, $anoSelecionado);
+    for ($d = 1; $d <= $numDias; $d++) {
+        $labelsGrafico[] = $d;
+        $valoresGrafico[] = 0;
+    }
+
+    $sqlGrafico = $db->prepare("
+        SELECT DAY(g.data_gasto) AS dia, SUM(g.valor) AS total
+        FROM gastos g
+        INNER JOIN controle_financeiro c ON g.id_controle = c.id_controle
+        WHERE c.id_usuario = ? AND MONTH(g.data_gasto) = ? AND YEAR(g.data_gasto) = ?
+        GROUP BY DAY(g.data_gasto)
+    ");
+    $sqlGrafico->bind_param("iii", $id_usuario, $mesSelecionado, $anoSelecionado);
+    $sqlGrafico->execute();
+    $resultadoGrafico = $sqlGrafico->get_result();
+
+    while ($linhaGrafico = $resultadoGrafico->fetch_assoc()) {
+        $indice = intval($linhaGrafico["dia"]) - 1;
+        $valoresGrafico[$indice] = floatval($linhaGrafico["total"]);
+    }
+}
+
+$whereHistorico = "WHERE c.id_usuario = ?";
+$tiposHistorico = "i";
+$valoresHistorico = [$id_usuario];
+
+if ($busca != "") {
+    $termoBusca = "%" . $busca . "%";
+
+    if ($tipoBusca == "gastos") {
+        $whereHistorico .= " AND (c.nome_controle LIKE ? OR EXISTS (SELECT 1 FROM gastos g2 WHERE g2.id_controle = c.id_controle AND g2.tipo_gasto LIKE ?))";
+        $tiposHistorico .= "ss";
+        $valoresHistorico[] = $termoBusca;
+        $valoresHistorico[] = $termoBusca;
+    } elseif ($tipoBusca == "receitas") {
+        $whereHistorico .= " AND (c.nome_controle LIKE ? OR EXISTS (SELECT 1 FROM receitas r2 WHERE r2.id_controle = c.id_controle AND r2.tipo_receita LIKE ?))";
+        $tiposHistorico .= "ss";
+        $valoresHistorico[] = $termoBusca;
+        $valoresHistorico[] = $termoBusca;
+    } elseif ($tipoBusca == "nome") {
+        $whereHistorico .= " AND c.nome_controle LIKE ?";
+        $tiposHistorico .= "s";
+        $valoresHistorico[] = $termoBusca;
+    } else {
+        $whereHistorico .= " AND (
+            c.nome_controle LIKE ?
+            OR EXISTS (SELECT 1 FROM gastos g2 WHERE g2.id_controle = c.id_controle AND g2.tipo_gasto LIKE ?)
+            OR EXISTS (SELECT 1 FROM receitas r2 WHERE r2.id_controle = c.id_controle AND r2.tipo_receita LIKE ?)
+        )";
+        $tiposHistorico .= "sss";
+        $valoresHistorico[] = $termoBusca;
+        $valoresHistorico[] = $termoBusca;
+        $valoresHistorico[] = $termoBusca;
+    }
+}
+
+$paginaAtual = isset($_GET['pagina']) ? max(1, intval($_GET['pagina'])) : 1;
+$limitePorPagina = 15;
+$offset = ($paginaAtual - 1) * $limitePorPagina;
+
+$sqlHistorico = "SELECT c.*,
+GREATEST(
+    IFNULL((SELECT MAX(g.data_gasto) FROM gastos g WHERE g.id_controle = c.id_controle), '1000-01-01'),
+    IFNULL((SELECT MAX(r.data_receita) FROM receitas r WHERE r.id_controle = c.id_controle), '1000-01-01'),
+    DATE(c.data_registro)
+) AS ultima_movimentacao
+FROM controle_financeiro c
+$whereHistorico
+ORDER BY c.id_controle DESC
+LIMIT ? OFFSET ?";
+
+$tiposHistorico .= "ii";
+$valoresHistorico[] = $limitePorPagina;
+$valoresHistorico[] = $offset;
+
+$resultado = executarConsultaPreparada($db, $sqlHistorico, $tiposHistorico, $valoresHistorico);
+
+$registros = [];
+while ($linha = $resultado->fetch_assoc()) {
+    $registros[] = $linha;
+}
+
+$moedaGrafico = 'BRL';
+if (count($registros) > 0) {
+    $moedaGrafico = Formatador::moedaPermitida($registros[0]['moeda'] ?? 'BRL');
+}
+
+$totalGastosBusca = 0;
+$totalReceitasBusca = 0;
+$qtdGastosBusca = 0;
+$qtdReceitasBusca = 0;
+
+if ($busca != "") {
+    $termoBusca = "%" . $busca . "%";
+
+    if ($tipoBusca == "todos" || $tipoBusca == "gastos") {
+        $sqlResumoGastos = "SELECT COUNT(*) AS quantidade, IFNULL(SUM(g.valor), 0) AS total
+        FROM gastos g
+        INNER JOIN controle_financeiro c ON g.id_controle = c.id_controle
+        WHERE c.id_usuario = ? AND g.tipo_gasto LIKE ?";
+        $resumoGastos = executarConsultaPreparada($db, $sqlResumoGastos, "is", [$id_usuario, $termoBusca])->fetch_assoc();
+        $qtdGastosBusca = intval($resumoGastos["quantidade"]);
+        $totalGastosBusca = floatval($resumoGastos["total"]);
+    }
+
+    if ($tipoBusca == "todos" || $tipoBusca == "receitas") {
+        $sqlResumoReceitas = "SELECT COUNT(*) AS quantidade, IFNULL(SUM(r.valor), 0) AS total
+        FROM receitas r
+        INNER JOIN controle_financeiro c ON r.id_controle = c.id_controle
+        WHERE c.id_usuario = ? AND r.tipo_receita LIKE ?";
+        $resumoReceitas = executarConsultaPreparada($db, $sqlResumoReceitas, "is", [$id_usuario, $termoBusca])->fetch_assoc();
+        $qtdReceitasBusca = intval($resumoReceitas["quantidade"]);
+        $totalReceitasBusca = floatval($resumoReceitas["total"]);
+    }
+}
+
+$larguraSvg = 900;
+$alturaSvg = 340;
+$margemEsquerda = 70;
+$margemDireita = 30;
+$margemTopo = 30;
+$margemBaixo = 70;
+$larguraGrafico = $larguraSvg - $margemEsquerda - $margemDireita;
+$alturaGrafico = $alturaSvg - $margemTopo - $margemBaixo;
+
+$maiorValor = max($valoresGrafico);
+if ($maiorValor <= 0) { $maiorValor = 1; }
+
+$pontos = "";
+$circulos = "";
+$labelsX = "";
+$linhasGrade = "";
+$totalPontos = count($valoresGrafico);
+
+for ($i = 0; $i < $totalPontos; $i++) {
+    if ($totalPontos == 1) {
+        $x = $margemEsquerda + ($larguraGrafico / 2);
+    } else {
+        $x = $margemEsquerda + ($i * ($larguraGrafico / ($totalPontos - 1)));
+    }
+
+    $valor = $valoresGrafico[$i];
+    $y = $margemTopo + ($alturaGrafico - (($valor / $maiorValor) * $alturaGrafico));
+    $pontos .= $x . "," . $y . " ";
+    $valorFormatado = number_format($valor, 2, ',', '.');
+
+    $circulos .= "<circle cx='$x' cy='$y' r='5' class='ponto'><title>" . htmlspecialchars(Formatador::simboloMoeda($moedaGrafico)) . " $valorFormatado</title></circle>";
+
+    $mostrarLabel = true;
+    if ($periodo == "1m" && $totalPontos > 12 && $i % 2 != 0 && $i != $totalPontos - 1) {
+        $mostrarLabel = false;
+    }
+
+    if ($mostrarLabel) {
+        $label = $labelsGrafico[$i];
+        $labelsX .= "<text x='$x' y='" . ($alturaSvg - 35) . "' class='label-x'>$label</text>";
+    }
+}
+
+for ($i = 0; $i <= 4; $i++) {
+    $valorLinha = ($maiorValor / 4) * $i;
+    $yLinha = $margemTopo + ($alturaGrafico - (($valorLinha / $maiorValor) * $alturaGrafico));
+    $valorLinhaFormatado = number_format($valorLinha, 0, ',', '.');
+
+    $linhasGrade .= "
+        <line x1='$margemEsquerda' y1='$yLinha' x2='" . ($larguraSvg - $margemDireita) . "' y2='$yLinha' class='grade'></line>
+        <text x='10' y='" . ($yLinha + 4) . "' class='label-y'>" . htmlspecialchars(Formatador::simboloMoeda($moedaGrafico)) . " $valorLinhaFormatado</text>
+    ";
+}
+?>
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Histórico - SmartMoney</title>
+    <style>
+        :root {
+            --fundo: linear-gradient(to right, #4facfe, #00f2fe);
+            --card: white;
+            --texto: #222;
+            --texto-secundario: #555;
+            --caixa: #f4f4f4;
+            --tabela: white;
+            --borda: #ddd;
+            --azul: #4facfe;
+            --botao: #4facfe;
+            --botao-texto: white;
+        }
+
+        body.tema-escuro {
+            --fundo: linear-gradient(to right, #141e30, #243b55);
+            --card: #1f2937;
+            --texto: #f5f5f5;
+            --texto-secundario: #d1d5db;
+            --caixa: #374151;
+            --tabela: #111827;
+            --borda: #4b5563;
+            --azul: #38bdf8;
+            --botao: #111827;
+            --botao-texto: #f5f5f5;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: var(--fundo);
+            color: var(--texto);
+            margin: 0;
+            padding: 30px;
+        }
+
+        .container {
+            background: var(--card);
+            color: var(--texto);
+            padding: 25px;
+            border-radius: 12px;
+            max-width: 1100px;
+            margin: auto;
+            box-shadow: 0 10px 15px rgba(0,0,0,0.2);
+        }
+
+        h2, h3 { text-align: center; }
+
+        .filtros {
+            background: var(--caixa);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        select, input[type="text"], button {
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid var(--borda);
+            margin: 5px;
+            background: var(--card);
+            color: var(--texto);
+        }
+
+        button {
+            background: var(--botao);
+            color: var(--botao-texto);
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .resumo-busca {
+            background: var(--caixa);
+            border-left: 5px solid var(--azul);
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .campo-busca {
+            width: 260px;
+            max-width: 90%;
+        }
+
+        .grafico {
+            background: var(--caixa);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+
+        svg { min-width: 900px; width: 100%; height: 340px; }
+        .linha { fill: none; stroke: var(--azul); stroke-width: 3; }
+        .ponto { fill: var(--azul); }
+        .grade { stroke: var(--borda); stroke-dasharray: 4; }
+        .label-x, .label-y { fill: var(--texto); font-size: 12px; text-anchor: middle; }
+        .label-y { text-anchor: start; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            color: var(--texto);
+        }
+
+        th, td {
+            padding: 9px;
+            border: 1px solid var(--borda);
+            text-align: center;
+        }
+
+        th { background: var(--botao); color: var(--botao-texto); }
+        td { background: var(--tabela); }
+
+        .Controlado { color: #22c55e; font-weight: bold; }
+        .Alerta { color: orange; font-weight: bold; }
+        .Endividado { color: red; font-weight: bold; }
+
+        .btn-detalhes {
+            background: var(--botao);
+            color: var(--botao-texto);
+            padding: 7px 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            display: inline-block;
+            margin: 2px;
+        }
+
+        .btn-remover-historico {
+            background: #dc2626;
+            color: white;
+            padding: 7px 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            display: inline-block;
+            margin: 2px;
+        }
+
+        .links { text-align: center; margin-top: 20px; }
+        .links a { color: var(--azul); text-decoration: none; margin: 0 8px; font-weight: bold; }
+
+        .btn-tema {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            width: auto;
+            padding: 10px 14px;
+            border-radius: 20px;
+            border: none;
+            background: var(--botao);
+            color: var(--botao-texto);
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            z-index: 999;
+        }
+
+        @media (max-width: 800px) {
+            .container { overflow-x: auto; }
+            table { min-width: 1000px; }
+        }
+    
+        .nome-controle-cell {
+            white-space: nowrap;
+        }
+
+        .btn-editar-nome {
+            border: none !important;
+            background: transparent !important;
+            color: inherit !important;
+            padding: 2px 4px !important;
+            margin: 0 0 0 5px !important;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            box-shadow: none !important;
+            vertical-align: middle;
+        }
+
+        .btn-editar-nome:hover {
+            transform: scale(1.12);
+            opacity: 0.8;
+        }
+</style>
+    <link rel="stylesheet" href="responsivo.css">
+</head>
+
+<body>
+<script>if(localStorage.getItem('tema') === 'escuro') document.body.classList.add('tema-escuro');</script>
+
+<button class="btn-tema" onclick="trocarTema()" id="btnTema">🌙 Tema escuro</button>
+
+<div class="container">
+    <h2>Histórico financeiro</h2>
+
+    <form class="filtros" method="get">
+        <label>Período:</label>
+        <select name="periodo">
+            <option value="ano" <?php if ($periodo == "ano") echo "selected"; ?>>Ano completo</option>
+            <option value="6m" <?php if ($periodo == "6m") echo "selected"; ?>>Últimos 6 meses</option>
+            <option value="3m" <?php if ($periodo == "3m") echo "selected"; ?>>Últimos 3 meses</option>
+            <option value="1m" <?php if ($periodo == "1m") echo "selected"; ?>>1 mês</option>
+        </select>
+
+        <label>Mês:</label>
+        <select name="mes">
+            <?php for ($m = 1; $m <= 12; $m++) { ?>
+                <option value="<?php echo $m; ?>" <?php if ($mesSelecionado == $m) echo "selected"; ?>><?php echo $nomesMeses[$m]; ?></option>
+            <?php } ?>
+        </select>
+
+        <label>Ano:</label>
+        <select name="ano">
+            <?php for ($a = date("Y") - 3; $a <= date("Y") + 1; $a++) { ?>
+                <option value="<?php echo $a; ?>" <?php if ($anoSelecionado == $a) echo "selected"; ?>><?php echo $a; ?></option>
+            <?php } ?>
+        </select>
+
+        <br>
+        <label>Pesquisar:</label>
+        <input class="campo-busca" type="text" name="busca" placeholder="Ex.: mercado, Uber, bico" value="<?php echo htmlspecialchars($busca); ?>">
+
+        <label>Tipo:</label>
+        <select name="tipo_busca">
+            <option value="todos" <?php if ($tipoBusca == "todos") echo "selected"; ?>>Gastos e receitas</option>
+            <option value="gastos" <?php if ($tipoBusca == "gastos") echo "selected"; ?>>Somente gastos</option>
+            <option value="receitas" <?php if ($tipoBusca == "receitas") echo "selected"; ?>>Somente receitas</option>
+            <option value="nome" <?php if ($tipoBusca == "nome") echo "selected"; ?>>Nome do controle</option>
+        </select>
+
+        <button type="submit">Filtrar</button>
+        <?php if ($busca != "") { ?>
+            <a class="btn-detalhes" href="historico.php">Limpar busca</a>
+        <?php } ?>
+    </form>
+
+    <?php if ($busca != "") { ?>
+        <div class="resumo-busca">
+            <strong>Resumo da busca por:</strong> <?php echo htmlspecialchars($busca); ?><br>
+            <?php if ($tipoBusca == "todos" || $tipoBusca == "gastos") { ?>
+                Gastos encontrados: <?php echo $qtdGastosBusca; ?> | Total: <?php echo Formatador::formatarMoeda($totalGastosBusca, $moedaGrafico); ?><br>
+            <?php } ?>
+            <?php if ($tipoBusca == "todos" || $tipoBusca == "receitas") { ?>
+                Receitas encontradas: <?php echo $qtdReceitasBusca; ?> | Total: <?php echo Formatador::formatarMoeda($totalReceitasBusca, $moedaGrafico); ?>
+            <?php } ?>
+        </div>
+    <?php } ?>
+
+    <div class="grafico">
+        <h3><?php echo $tituloGrafico; ?></h3>
+        <svg viewBox="0 0 <?php echo $larguraSvg; ?> <?php echo $alturaSvg; ?>">
+            <?php echo $linhasGrade; ?>
+            <polyline points="<?php echo trim($pontos); ?>" class="linha"></polyline>
+            <?php echo $circulos; ?>
+            <?php echo $labelsX; ?>
+        </svg>
+    </div>
+
+    <div class="tabela-scroll"><table>
+        <tr>
+            <th>Nº</th>
+            <th>Nome do controle</th>
+            <th>Renda principal</th>
+            <th>Total de rendas</th>
+            <th>Total de gastos</th>
+            <th>Sobra</th>
+            <th>% gasto</th>
+            <th>Situação</th>
+            <th>Data da movimentação</th>
+            <th>Detalhes</th>
+            <th>Remover</th>
+        </tr>
+
+        <?php if (count($registros) == 0) { ?>
+            <tr><td colspan="11">Nenhum registro encontrado para os filtros informados.</td></tr>
+        <?php } ?>
+
+        <?php $numeroHistorico = 1 + $offset; ?>
+        <?php foreach ($registros as $linha) { ?>
+            <tr>
+                <td><?php echo $numeroHistorico; ?></td>
+                <td class="nome-controle-cell">
+                    <strong><?php echo htmlspecialchars($linha["nome_controle"] ?? "Controle financeiro"); ?></strong>
+                    <button
+                        type="button"
+                        class="btn-editar-nome"
+                        onclick="editarNomeControle(<?php echo (int)$linha['id_controle']; ?>, <?php echo htmlspecialchars(json_encode($linha['nome_controle'] ?? 'Controle financeiro'), ENT_QUOTES, 'UTF-8'); ?>)"
+                        title="Editar nome"
+                        aria-label="Editar nome do controle"
+                    >✏️</button>
+                </td>
+                <td><?php echo Formatador::formatarMoeda($linha["salario"], $linha["moeda"] ?? "BRL"); ?></td>
+                <td><?php echo Formatador::formatarMoeda($linha["total_rendas"], $linha["moeda"] ?? "BRL"); ?></td>
+                <td><?php echo Formatador::formatarMoeda($linha["total_gastos"], $linha["moeda"] ?? "BRL"); ?></td>
+                <td><?php echo Formatador::formatarMoeda($linha["sobra"], $linha["moeda"] ?? "BRL"); ?></td>
+                <td><?php echo number_format($linha["porcentagem_gasta"], 2, ',', '.'); ?>%</td>
+                <td class="<?php echo $linha["situacao"]; ?>"><?php echo $linha["situacao"]; ?></td>
+                <td>
+                    <?php
+                    if (!empty($linha["ultima_movimentacao"])) {
+                        echo date("d/m/Y", strtotime($linha["ultima_movimentacao"]));
+                    } else {
+                        echo date("d/m/Y", strtotime($linha["data_registro"]));
+                    }
+                    ?>
+                </td>
+                <td>
+                    <a class="btn-detalhes" href="detalhes.php?id=<?php echo $linha["id_controle"]; ?>">Ver</a>
+                </td>
+                <td>
+                    <a class="btn-remover-historico" href="remover_historico.php?id=<?php echo $linha["id_controle"]; ?>">Remover</a>
+                </td>
+            </tr>
+            <?php $numeroHistorico++; ?>
+        <?php } ?>
+    </table></div>
+
+    <!-- Botões de Paginação -->
+    <div style="text-align: center; margin-top: 15px; display: flex; justify-content: center; gap: 10px;">
+        <?php if ($paginaAtual > 1) { ?>
+            <a href="historico.php?pagina=<?php echo $paginaAtual - 1; ?>&periodo=<?php echo $periodo; ?>&mes=<?php echo $mesSelecionado; ?>&ano=<?php echo $anoSelecionado; ?>&busca=<?php echo urlencode($busca); ?>&tipo_busca=<?php echo urlencode($tipoBusca); ?>" style="padding: 8px 15px; background: var(--caixa); color: var(--texto); border-radius: 8px; text-decoration: none; border: 1px solid var(--borda);">⬅️ Anterior</a>
+        <?php } ?>
+        
+        <?php if (count($registros) == $limitePorPagina) { ?>
+            <a href="historico.php?pagina=<?php echo $paginaAtual + 1; ?>&periodo=<?php echo $periodo; ?>&mes=<?php echo $mesSelecionado; ?>&ano=<?php echo $anoSelecionado; ?>&busca=<?php echo urlencode($busca); ?>&tipo_busca=<?php echo urlencode($tipoBusca); ?>" style="padding: 8px 15px; background: var(--caixa); color: var(--texto); border-radius: 8px; text-decoration: none; border: 1px solid var(--borda);">Próxima ➡️</a>
+        <?php } ?>
+    </div>
+
+    <div class="links">
+        <a href="money.php">Novo cálculo</a>
+        |
+        <a href="logout.php">Sair</a>
+    </div>
+</div>
+
+<script>
+function editarNomeControle(id, nomeAtual) {
+    const novoNome = prompt("Novo nome do controle:", nomeAtual);
+
+    if (novoNome === null) {
+        return;
+    }
+
+    const nome = novoNome.trim();
+
+    if (nome === "") {
+        alert("O nome não pode ficar vazio.");
+        return;
+    }
+
+    if (nome.length > 150) {
+        alert("O nome pode ter no máximo 150 caracteres.");
+        return;
+    }
+
+    const formulario = document.createElement("form");
+    formulario.method = "POST";
+    formulario.action = "editar_nome_controle.php";
+
+    const campoId = document.createElement("input");
+    campoId.type = "hidden";
+    campoId.name = "id_controle";
+    campoId.value = id;
+
+    const campoNome = document.createElement("input");
+    campoNome.type = "hidden";
+    campoNome.name = "nome_controle";
+    campoNome.value = nome;
+
+    formulario.appendChild(campoId);
+    formulario.appendChild(campoNome);
+    document.body.appendChild(formulario);
+    formulario.submit();
+}
+
+function aplicarTemaSalvo() {
+    const temaSalvo = localStorage.getItem("tema");
+    if (temaSalvo === "escuro") {
+        document.body.classList.add("tema-escuro");
+        document.getElementById("btnTema").textContent = "☀️ Tema claro";
+    } else {
+        document.body.classList.remove("tema-escuro");
+        document.getElementById("btnTema").textContent = "🌙 Tema escuro";
+    }
+}
+
+function trocarTema() {
+    document.body.classList.toggle("tema-escuro");
+    if (document.body.classList.contains("tema-escuro")) {
+        localStorage.setItem("tema", "escuro");
+        document.getElementById("btnTema").textContent = "☀️ Tema claro";
+    } else {
+        localStorage.setItem("tema", "claro");
+        document.getElementById("btnTema").textContent = "🌙 Tema escuro";
+    }
+}
+
+aplicarTemaSalvo();
+</script>
+</body>
+</html>

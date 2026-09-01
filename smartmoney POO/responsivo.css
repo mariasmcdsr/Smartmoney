@@ -1,0 +1,89 @@
+/* SmartMoney - Responsividade Ajustada v3 */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+}
+
+/* =========================
+   COMPUTADOR / PADRÃO
+   ========================= */
+
+/* Cada tela vai respeitar seu próprio tamanho definido no PHP */
+.container {
+    margin: 40px auto; 
+}
+
+/* Botão de tema no computador (canto superior direito fixo) */
+.btn-tema {
+    position: fixed !important;
+    top: 15px !important;
+    right: 15px !important;
+    left: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    margin: 0 !important;
+    z-index: 999 !important;
+    white-space: nowrap !important;
+}
+
+/* =========================
+   CELULAR
+   ========================= */
+
+@media (max-width: 600px) {
+    body {
+        /* Espaço no topo para o botão não sobrepor o conteúdo */
+        padding-top: 60px !important; 
+    }
+
+    .container {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 20px 15px;
+        border-radius: 14px;
+        margin: 0 auto;
+    }
+
+    /* Botão de tema centralizado no topo */
+    .btn-tema {
+        position: absolute !important;
+        top: 15px !important;
+        left: 50% !important; 
+        right: auto !important;
+        transform: translateX(-50%) !important; 
+        margin: 0 !important;
+        display: block !important;
+        width: max-content !important; 
+        padding: 8px 16px !important;
+        font-size: 14px !important;
+    }
+
+    input, select, textarea, button { max-width: 100%; }
+    
+    table { width: 100%; }
+    
+    .tabela-scroll, .table-responsive {
+        width: 100%; 
+        max-width: 100%; 
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (max-width: 380px) {
+    body { padding-top: 55px !important; }
+    .container { padding: 16px 11px; }
+    .btn-tema { font-size: 13px !important; padding: 6px 12px !important; top: 10px !important; }
+}
